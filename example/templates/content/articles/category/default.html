@@ -1,0 +1,14 @@
+{% load feincms_tags %}
+
+<div class="article-category">
+<h3>{{ content.category.name }}</h3>
+{% for object in object_list %}
+  <div class="article-block">
+    <h4>{{ object.title }}</h4>
+    <p>{{ object.publication_date }}</p>
+    {% feincms_render_region object 'summary' request %}
+    <p><a href="{{ object.get_absolute_url }}">More...</a></p>
+  </div>
+{% endfor %}
+</div>
+

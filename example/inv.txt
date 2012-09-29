@@ -1,0 +1,298 @@
+
+
+нужно подключить articles к fein-cms
+
+вариантов два
+Page.create_content_type(ApplicationContent, APPLICATIONS=(
+    ('blog_urls', 'Blog', {'admin_fields': get_admin_fields}),
+    ('articles.urls', 'ArticleList', ),
+    ))
+
+
+и 
+Article.register_regions(('summary', _('Summary')), ('main', _('Main region')),)
+
+Article.create_content_type(RichTextContent)
+
+второй подход позволяет включить новый контент в страницу и все работает, но ссылки 
+которые должны отрендерится через 
+
+articles.models.Article
+
+    @app_models.permalink
+    def get_absolute_url(self):
+        return ('article_detail', 'articles.urls', (), {'slug': self.slug})
+
+остаются пустыми
+а при использовании первого варианта ссылки работают но фрагмент содержания не рендерится
+
+реализация @app_models.permalink находится в feincms.content.application.models
+def permalink(func):
+    """
+    Decorator that calls app_reverse()
+
+    Use this instead of standard django.db.models.permalink if you want to
+    integrate the model through ApplicationContent. The wrapped function
+    must return 4 instead of 3 arguments::
+
+        class MyModel(models.Model):
+            @appmodels.permalink
+            def get_absolute_url(self):
+                return ('myapp.urls', 'mymodel_detail', (), {'slug': self.slug})
+    """
+    def inner(*args, **kwargs):
+        return app_reverse(*func(*args, **kwargs))
+    return wraps(func)(inner)
+
+тоесть этот вариант рассчитан только на интеграцию по первому сценарию через ApplicationContext
+и шаблон которым представлена список статей рассчитан на первый вариант
+
+линки при этом генерируются в виде news/articles/test_news1/
+тоесть <category>/articles/<slug>
+но не работают
+
+а например для приложения blog линки генерируются blog/<id> и прекрасно работают
+но в blog используется стандартный permalink из django.db.models
+
+    @models.permalink
+    def get_absolute_url(self):
+        return ('blog_entry_detail', (self.id,), {})
+
+но в примере для блога создается специальный класс
+
+class BlogEntriesNavigationExtension(NavigationExtension):
+    """
+    Extended navigation for blog entries.
+
+    It would be added to 'Blog' page properties in admin.
+    """
+    name = _('all blog entries')
+
+    def children(self, page, **kwargs):
+        for entry in Entry.objects.all():
+            yield PagePretender(
+                title=entry.title,
+                url=app_reverse('blog_entry_details', 'blog_urls', kwargs={'pk': entry.id}),
+                level=page.level + 1,
+                )
+которй впрочем явно не используется
+
+несмотря на то что для Entry зарегистрирован контент
+в списке самостоятельных блоков Entry не появляется в отличии от ArticleList
+
+скорее всего используемым вариантом является интеграция приложения через ApplicationContext
+кроме того этот подход позволяет кастомизировать настройки фрагмента контекста в админке
+а мне нужно будет указывать не только количество но и категорию статей
+
+поэтому его и выбираю
+остается понять почему соответствующий фрагмент не рендерится
+надо подключить отладку
+
+при запуске проекта почемуто не стартует runserver просто зависает - забыл задать --noreload 
+есть в PyDev с этим какойто косяк
+
+почемуто при рендеринге страницы на которой только новости вызывается
+class BlogEntriesNavigationExtension(NavigationExtension):
+    def children
+
+нормально, это отработка navigation extension
+
+стектрейс выглядит
+Thread-25 - pid7580_seq17	
+	feincms.content.application.app_reverse [models.py:70]	
+	feincms.content.application.permalink.inner [models.py:201]	
+	django.template.base._resolve_lookup [base.py:772]	
+	django.template.base.resolve [base.py:721]	
+	django.template.base.resolve [base.py:571]	
+	django.template.debug.render [debug.py:84]	
+	django.template.defaulttags.render [defaulttags.py:185]	
+	render_node [debug.py:74]	
+	render [base.py:823]	
+	_render [base.py:134]	
+	render [base.py:140]	
+	django.template.loader.render_to_string [loader.py:171]	
+	articles.content.render [content.py:21]	
+	feincms.feincms_tags._render_content [feincms_tags.py:27]	
+	<genexpr> [feincms_tags.py:42]	
+	eincms.feincms_tags.feincms_render_region [feincms_tags.py:42]	
+
+
+в feincms.models._fetch_regions для страницы получаются фрагменты
+{u'main': [<ApplicationContent: main on News, ordering 0>]}
+далее для фрагмента вызывается feincms.templatetags.feincms_tags._render_content
+которому в качестве первого аргумента передается фрагмент
+далее вызывается функция render для фрагмента
+что соответствует
+feincms.content.application.models.ApplicationContent.render
+но она просто возвращает значение атрибута
+    def render(self, **kwargs):
+        return getattr(self, 'rendered_result', u'')
+а для данного фрагмента вообще не задан
+
+а заполняется этот атрибут в ApplicationContext.process
+
+когда process вызывается для /news/ 
+то         
+# Resolve the module holding the application urls.
+urlconf_path = self.app_config.get('urls', self.urlconf_path)
+коректно отражается в articles.urls
+tuple: (u'articles.urls', '/news/')
+fn, args, kwargs = resolve(path, urlconf_path)
+нормально выдает
+function CategoryArticleList,(),{}
+
+затем в 
+request._feincms_extra_context.update(self.parameters)
+добавляются параметры заданные а админке для этого фрагмента
+
+затем формируется вывод 
+output = fn(request, *args, **kwargs)
+
+поскольку функция относится к объекту то вызывается она не напрямую а через 
+django.views.generic.base.View.as_view.view
+
+и вызывается
+articles.modules.category.views.CategoryArticleList.get
+она пытается из параметров получить category_url
+и по нему объект категорию
+
+далее вызывается 
+BaseViewList.get
+в которой получается набор данных функцией get_queryset
+
+который для CategoryArticleList определен как
+ArticleList.objects
+	.active()
+	.filter(Q условие на группу доступа к категории)
+
+если category задана то добавляется условие что для категории и всех ее наследников (определяется параметром ARTICLE_SHOW_DESCENDANTS)
+
+потом получаются данные
+QuerySet: [<Article: test_news1>]
+
+добавляется в context параметр object_list и вызывается
+AppContextMixin.render_to_response
+
+в результате возвращается структура
+tuple: (
+[	
+	'articles/category_article_list.html', 
+	'articles/article_list.html'
+], 
+{	
+	'paginator': None, 
+	'article_list': [<Article: test_news1>], 
+	'object_list': [<Article: test_news1>], 
+	'page_obj': None, 
+	'category': None, 
+	'is_paginated': False
+}
+)
+
+в кон це концов из этого формируется 
+dict: {'view': <feincms.views.cbv.views.Handler object at 0x0468E350>}
+
+args	tuple: (u'news',)	
+kwargs	dict: {}	
+page	Page: News	
+request	WSGIRequest: ...
+template_name	list: ['articles/category_article_list.html', 'articles/article_list.html']	
+
+
+            elif isinstance(output, tuple) and 'view' in kw:
+                kw['view'].template_name = output[0]
+                kw['view'].request._feincms_extra_context.update(output[1])
+            else:
+                self.rendered_result = mark_safe(output)
+
+тоесть если output = fn(request, *args, **kwargs)
+
+вернул tuple то renderd_result не заполняется
+
+далее вызывается 
+feincms.views.views.render_to_response
+
+вобщем получается что при таком подходе не рендерится содержимое которое в интегрированном приложении
+шаблоны таковы что перекрывают всю страницу и нельзя совместить на одной странице несколько приложений
+
+
+так что пора возвращатся к первоначальному варианту
+регистрируем тип для страницы
+
+Page.create_content_type(ArticleCategoryList,LAYOUT_CHOICES=(('left',_('left')),('right',_('right')),('center',_('center')),))
+
+после этого статьи нужной категории нормально отображаются
+используется шаблон
+content/articles/category/default.html
+
+{% load feincms_tags %}
+
+<section class="article-category">
+<h3>{{ content.category.name }}</h3>
+{% for object in object_list %}
+  <article class="article-block">
+    <h4>{{ object.title }}</h4>
+    {% feincms_render_region object 'summary' request %}
+    <p><a href="{{ object.get_absolute_url }}">More...</a></p>
+  </article>
+{% endfor %}
+</section>
+ссылки на сами статьи генерируются успешно потому что в шаблоне прописаны как object.get_absolute_url
+
+но страницы не открываются с 404 ошибкой, feincms их разрезолвить не может
+
+подключить articles.modules.categories.urls нельзя потому что они ссылаются на несуществующие функции article_details, article_category
+urlpatterns = patterns('articles.modules.category.views',
+    url(r'^(?P<category_url>[a-z0-9_/-]+/)(?P<article>[a-z0-9_-]+).html$', 'article_detail', name="article_detail"),
+    url(r'^(?P<category_url>[a-z0-9_/-]+/)$', 'article_category', name='article_category'),
+    url(r'^$', 'article_category', name='article_index'),
+)
+
+а view весь на классах и вообще не содержит функций, а для классов прописаны несуществующие шаблоны
+articles/category_article_list.html
+articles/category_article_detail.html
+
+содержимое репозитория говорит что такие шаблоны есть, значит опять баг с unix/windows символами слеша
+впрочем шаблоны таковы что полностью определяют сраницу 
+
+видно что автор еще не доделал издение :)
+
+автор feincms советует прямо переходить на Class Based Views
+http://feincms-django-cms.readthedocs.org/en/latest/integration.html#integration-applicationcontent-inheritance20
+
+хотя старый вариант тоже поддерживается
+
+поэтому проще вернуть старые view обработчики и формировать фрагменты 
+старые обработчики можно взять с бранча 0.1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -69,7 +69,7 @@ def app_reverse(viewname, urlconf, args=None, kwargs=None, prefix=None, *vargs, 
     # we'll try to be helpful and extract the current urlconf from it
     appconfig = getattr(urlconf, '_feincms_extra_context', {}).get('app_config', {})
     urlconf = appconfig.get('urlconf_path', urlconf)
-
+    
     # vargs and vkwargs are used to send through additional parameters which are
     # uninteresting to us (such as current_app)
 
@@ -89,7 +89,7 @@ def app_reverse(viewname, urlconf, args=None, kwargs=None, prefix=None, *vargs, 
             'all': '%s:app_%s_%s_%s_%s_%s' % ((cache_key_prefix, urlconf,) + proximity_info),
             'tree': '%s:app_%s_%s' % (cache_key_prefix, urlconf, proximity_info[0]),
             })
-
+    
     for key in ('all', 'tree', 'none'):
         try:
             url_prefix = _local.reverse_cache[app_cache_keys[key]]
@@ -102,11 +102,11 @@ def app_reverse(viewname, urlconf, args=None, kwargs=None, prefix=None, *vargs, 
             model_class = _local.page_class.content_type_for(ApplicationContent)
         except AttributeError:
             model_class = None
-
+        
         if not model_class:
             # Take any
             model_class = ApplicationContent._feincms_content_models[0]
-
+        
         # TODO: Only active pages? What about multisite support?
         contents = model_class.objects.filter(urlconf_path=urlconf).select_related('parent')
 

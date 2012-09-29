@@ -1,0 +1,11 @@
+{% load i18n feincms_tags %}
+
+<h3>{{ object }}</h3>
+
+    <div class="article full">
+
+        <div class="body">
+            {% feincms_render_region object 'main' request %}
+        </div>
+    </div>
+    

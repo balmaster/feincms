@@ -75,9 +75,12 @@ INSTALLED_APPS = (
     'feincms.module.blog',
     'feincms.module.page',
     'feincms.module.medialibrary',
+    'articles',
+    'articles.modules.category',
+    'taggit',
     'example',
-
     'mptt',
+    'south',
 )
 
 LANGUAGES = (
@@ -86,3 +89,9 @@ LANGUAGES = (
 )
 
 FEINCMS_TREE_EDITOR_INCLUDE_ANCESTORS = True
+
+SOUTH_MIGRATION_MODULES = {
+    'page': 'example.migrate.page',
+    'medialibrary': 'example.migrate.medialibrary', # if you are using the medialibrary
+                                                    # which comes with FeinCMS
+    }

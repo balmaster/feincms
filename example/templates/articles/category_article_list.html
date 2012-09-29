@@ -1,0 +1,12 @@
+{% load feincms_tags i18n %}
+
+    <h2>{% trans 'Articles' %}</h2>
+
+    {% for article in object_list %}  
+    <div class="article short">
+        <div class="summary">
+            <h3><a href="{{ article.get_absolute_url }}">{{ article }}</a></h3>
+            {% feincms_render_region article 'summary' request %}
+        </div>
+    </div>
+    {% endfor %}

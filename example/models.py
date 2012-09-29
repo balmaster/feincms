@@ -11,9 +11,11 @@ from feincms.content.raw.models import RawContent
 from feincms.content.image.models import ImageContent
 from feincms.content.medialibrary.models import MediaFileContent
 from feincms.content.application.models import ApplicationContent
+from feincms.content.richtext.models import RichTextContent 
 from feincms.module.page.extensions.navigation import NavigationExtension, PagePretender
 from feincms.content.application.models import app_reverse
-
+from articles.models import Article
+from articles.modules.category.content import ArticleCategoryList
 
 Page.register_templates({
     'key': 'base',
@@ -30,6 +32,7 @@ Page.create_content_type(ImageContent, POSITION_CHOICES=(
     ('default', 'Default position'),
     ))
 
+
 def get_admin_fields(form, *args, **kwargs):
     return {
         'exclusive_subpages': forms.BooleanField(
@@ -40,8 +43,11 @@ def get_admin_fields(form, *args, **kwargs):
             ),
     }
 
+
+
 Page.create_content_type(ApplicationContent, APPLICATIONS=(
     ('blog_urls', 'Blog', {'admin_fields': get_admin_fields}),
+    ('articles.urls', 'Materials', ),
     ))
 
 
@@ -52,7 +58,6 @@ Entry.create_content_type(RawContent)
 Entry.create_content_type(ImageContent, POSITION_CHOICES=(
     ('default', 'Default position'),
     ))
-
 
 class BlogEntriesNavigationExtension(NavigationExtension):
     """
@@ -94,4 +99,17 @@ class Category(MPTTModel):
 Entry.add_to_class('categories', models.ManyToManyField(Category, blank=True, null=True))
 EntryAdmin.list_filter += ('categories',)
 
+Page.create_content_type(ArticleCategoryList,LAYOUT_CHOICES=(('left',_('left')),('right',_('right')),('center',_('center')),))
+
+Article.register_regions(('summary', _('Summary')), ('main', _('Main region')),)
+
+Article.create_content_type(RichTextContent)
+Article.create_content_type(ImageContent, POSITION_CHOICES=(('block', _('block')), ('left', _('left')), ('right', _('right')),))
+
+Article.register_extensions(
+	'articles.modules.category.extensions.category', 
+	'datepublisher', 
+	'tags', 
+	'thumbnail'
+	) 
 
