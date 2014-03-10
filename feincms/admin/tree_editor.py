@@ -225,7 +225,7 @@ class TreeEditor(ExtensionModelAdmin):
         r += '<span id="page_marker-%d" class="page_marker%s" style="width: %dpx;">&nbsp;</span>&nbsp;' % (
                 item.pk, editable_class, 14+getattr(item, mptt_opts.level_attr)*18)
 #        r += '<span tabindex="0">'
-        if hasattr(item, 'short_title'):
+        if hasattr(item, 'short_title') and callable(item.short_title):
             r += escape(item.short_title())
         else:
             r += escape(unicode(item))
@@ -393,7 +393,7 @@ class TreeEditor(ExtensionModelAdmin):
         pasted_on = tree_manager.get(pk=request.POST.get('pasted_on'))
         position = request.POST.get('position')
 
-        if position in ('last-child', 'left'):
+        if position in ('last-child', 'left', 'right'):
             try:
                 tree_manager.move_node(cut_item, pasted_on, position)
             except InvalidMove, e:

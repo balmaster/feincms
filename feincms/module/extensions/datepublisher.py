@@ -57,7 +57,8 @@ def datepublisher_response_processor(page, request, response):
     expires = page.publication_end_date
     if expires is not None:
         now = datetime.now()
-        delta = int((expires - now).total_seconds())
+        delta = expires - now
+        delta = int(delta.days * 86400 + delta.seconds)
         patch_response_headers(response, delta)
 
 # ------------------------------------------------------------------------
@@ -110,7 +111,7 @@ def register(cls, admin_cls):
     admin_cls.list_display.insert(pos + 1, 'datepublisher_admin')
 
     admin_cls.add_extension_options(_('Date-based publishing'), {
-                'fields': ('publication_date', 'publication_end_date'),
+                'fields': ['publication_date', 'publication_end_date'],
         })
 
 # ------------------------------------------------------------------------
