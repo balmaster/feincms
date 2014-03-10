@@ -1,10 +1,12 @@
-Django>=1.4
+Django==1.5.5
 django-mptt>=0.4
 PIL
 feedparser>=5.1.2
 #lxml
 BeautifulSoup>=3.1.2
-git+git://github.com/balmaster/feincms-articles.git#egg=feincms-articles
+#git+git://github.com/balmaster/feincms-articles.git#egg=feincms-articles
+-e ..
+-e ../../feincms-articles
 django_pagination==1.0.7
 django-taggit
 #git+git://github.com/initcrash/django-denorm.git#egg=django-denorm
