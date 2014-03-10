@@ -2,17 +2,16 @@
 # coding=utf-8
 # ------------------------------------------------------------------------
 
-try:
-    import json
-except ImportError:
-    from django.utils import simplejson as json  # Python 2.5
+import json
 import logging
 
 from django.conf import settings as django_settings
 from django.contrib import admin
 from django.contrib.admin.views import main
 from django.db.models import Q
-from django.http import HttpResponse, HttpResponseBadRequest, HttpResponseForbidden, HttpResponseNotFound, HttpResponseServerError
+from django.http import (HttpResponse, HttpResponseBadRequest,
+    HttpResponseForbidden, HttpResponseNotFound, HttpResponseServerError)
+from django.utils.html import escape
 from django.utils.safestring import mark_safe
 from django.utils.translation import ugettext_lazy as _, ugettext
 
@@ -20,6 +19,7 @@ from mptt.exceptions import InvalidMove
 from mptt.forms import MPTTAdminForm
 
 from feincms import settings
+from feincms.extensions import ExtensionModelAdmin
 
 
 # ------------------------------------------------------------------------
@@ -93,7 +93,7 @@ def ajax_editable_boolean_cell(item, attr, text='', override=None):
         a = [
               '<input type="checkbox"',
               value and ' checked="checked"' or '',
-              ' onclick="return inplace_toggle_boolean(%d, \'%s\')"' % (item.pk, attr),
+              ' onclick="inplace_toggle_boolean(%d, \'%s\').then($.fn.recolorRows);"' % (item.pk, attr),
               ' />',
               text,
             ]
@@ -163,7 +163,7 @@ class ChangeList(main.ChangeList):
 # MARK: -
 # ------------------------------------------------------------------------
 
-class TreeEditor(admin.ModelAdmin):
+class TreeEditor(ExtensionModelAdmin):
     """
     The ``TreeEditor`` modifies the standard Django administration change list
     to a drag-drop enabled interface for django-mptt_-managed Django models.
@@ -207,9 +207,14 @@ class TreeEditor(admin.ModelAdmin):
         """
         mptt_opts = item._mptt_meta
         r = ''
-        if hasattr(item, 'get_absolute_url'):
+        try:
+            url = item.get_absolute_url()
+        except (AttributeError,):
+            url = None
+
+        if url:
             r = '<input type="hidden" class="medialibrary_file_path" value="%s" id="_refkey_%d" />' % (
-                        item.get_absolute_url(),
+                        url,
                         item.pk
                       )
 
@@ -220,10 +225,10 @@ class TreeEditor(admin.ModelAdmin):
         r += '<span id="page_marker-%d" class="page_marker%s" style="width: %dpx;">&nbsp;</span>&nbsp;' % (
                 item.pk, editable_class, 14+getattr(item, mptt_opts.level_attr)*18)
 #        r += '<span tabindex="0">'
-        if hasattr(item, 'short_title'):
-            r += item.short_title()
+        if hasattr(item, 'short_title') and callable(item.short_title):
+            r += escape(item.short_title())
         else:
-            r += unicode(item)
+            r += escape(unicode(item))
 #        r += '</span>'
         return mark_safe(r)
     indented_short_title.short_description = _('title')
@@ -284,7 +289,7 @@ class TreeEditor(admin.ModelAdmin):
 
         self._collect_editable_booleans()
 
-        if not self._ajax_editable_booleans.has_key(attr):
+        if not attr in self._ajax_editable_booleans:
             return HttpResponseBadRequest("not a valid attribute %s" % attr)
 
         try:
@@ -296,12 +301,14 @@ class TreeEditor(admin.ModelAdmin):
             logging.warning("Denied AJAX request by %s to toggle boolean %s for object %s", request.user, attr, item_id)
             return HttpResponseForbidden("You do not have permission to access this object")
 
-        logging.info("Processing request by %s to toggle %s on %s", request.user, attr, obj)
+        new_state = not getattr(obj, attr)
+        logging.info("Processing request by %s to toggle %s on #%d %s to %s",
+                     request.user, attr, obj.pk, obj, "on" if new_state else "off")
 
         try:
             before_data = self._ajax_editable_booleans[attr](self, obj)
 
-            setattr(obj, attr, not getattr(obj, attr))
+            setattr(obj, attr, new_state)
             obj.save()
 
             self._refresh_changelist_caches() # ???: Perhaps better a post_save signal?
@@ -316,13 +323,9 @@ class TreeEditor(admin.ModelAdmin):
         # Weed out unchanged cells to keep the updates small. This assumes
         # that the order a possible get_descendents() returns does not change
         # before and after toggling this attribute. Unlikely, but still...
-        d = []
-        for a, b in zip(before_data, data):
-            if a != b:
-                d.append(b)
-
-        # TODO: Shorter: [ y for x,y in zip(a,b) if x!=y ]
-        return HttpResponse(json.dumps(d), mimetype="application/json")
+        return HttpResponse(json.dumps(
+            [b for a, b in zip(before_data, data) if a != b]
+            ), content_type="application/json")
 
     def get_changelist(self, request, **kwargs):
         return ChangeList
@@ -390,7 +393,7 @@ class TreeEditor(admin.ModelAdmin):
         pasted_on = tree_manager.get(pk=request.POST.get('pasted_on'))
         position = request.POST.get('position')
 
-        if position in ('last-child', 'left'):
+        if position in ('last-child', 'left', 'right'):
             try:
                 tree_manager.move_node(cut_item, pasted_on, position)
             except InvalidMove, e:

@@ -32,6 +32,7 @@ from feincms.content.richtext.models import RichTextContent
 from feincms.context_processors import add_page_if_missing
 from feincms.models import ContentProxy
 from feincms.module.medialibrary.models import Category, MediaFile
+from feincms.module.page import processors
 from feincms.module.page.models import Page
 from feincms.templatetags import feincms_tags
 from feincms.translations import short_language_code
@@ -317,7 +318,7 @@ class PagesTestCase(TestCase):
             'mediafilecontent_set-MAX_NUM_FORMS': 10,
 
             'mediafilecontent_set-0-parent': 1,
-            'mediafilecontent_set-0-position': 'block',
+            'mediafilecontent_set-0-type': 'default',
 
             'imagecontent_set-TOTAL_FORMS': 1,
             'imagecontent_set-INITIAL_FORMS': 0,
@@ -388,7 +389,7 @@ class PagesTestCase(TestCase):
         page.mediafilecontent_set.create(
             mediafile=mediafile,
             region='main',
-            position='block',
+            type='default',
             ordering=1)
 
         self.assertEqual(unicode(mediafile), 'somefile.jpg')
@@ -589,12 +590,56 @@ class PagesTestCase(TestCase):
         self.assertEqual(feincms_tags.feincms_frontend_editing(page, {}), u'')
 
         request = Empty()
-        request.session = {'frontend_editing': True}
+        request.COOKIES = {'frontend_editing': "True"}
 
-        self.assertTrue('class="fe_box"' in\
+        self.assertIn('class="fe_box"',
             page.content.main[0].fe_render(request=request))
 
-        self.assertFalse('class="fe_box"' in self.client.get(page.get_absolute_url() + '?frontend_editing=1').content)
+    def test_15_b_client_frontend_editing(self):
+        self.create_default_page_set()
+        page = Page.objects.get(pk=1)
+        self.create_pagecontent(page)
+
+        page.active = True
+        page.template_key = 'theother'
+        page.save()
+
+        # FEINCMS_FRONTEND_EDITING is False by default
+        response = self.client.get(page.get_absolute_url() +
+                '?frontend_editing=1',
+                follow=True)
+        self.assertNotIn('class="fe_box"', response.content)
+        self.assertNotIn('frontend_editing', self.client.cookies)
+
+        # manually register request processor
+        # override_settings(FEINCMS_FRONTEND_EDITING=True) wont work here
+        Page.register_request_processor(
+                processors.frontendediting_request_processor,
+                key='frontend_editing')
+        response = self.client.get(page.get_absolute_url() +
+                '?frontend_editing=1',
+                follow=True)
+        self.assertRedirects(response, page.get_absolute_url())
+        self.assertIn('class="fe_box"', response.content)
+        self.assertIn('frontend_editing', self.client.cookies)
+
+        # turn off edit on site
+        response = self.client.get(page.get_absolute_url() +
+                '?frontend_editing=0',
+                follow=True)
+        self.assertRedirects(response, page.get_absolute_url())
+        self.assertNotIn('class="fe_box"', response.content)
+
+        # anonymous user cannot front edit
+        self.client.logout()
+        response = self.client.get(page.get_absolute_url() +
+                '?frontend_editing=1',
+                follow=True)
+        self.assertRedirects(response, page.get_absolute_url())
+        self.assertNotIn('class="fe_box"', response.content)
+
+        # cleanup request processor
+        del Page.request_processors['frontend_editing']
 
     def test_16_template_tags(self):
         # Directly testing template tags doesn't make any sense since
@@ -869,13 +914,21 @@ class PagesTestCase(TestCase):
         page.active = True
         page.save()
 
-        self.assertEqual(page, Page.objects.page_for_path(page.get_absolute_url()))
-        self.assertEqual(page, Page.objects.best_match_for_path(page.get_absolute_url() + 'something/hello/'))
+        self.assertRaises(Page.DoesNotExist,
+            lambda: Page.objects.page_for_path(page.get_absolute_url()))
+        self.assertRaises(Page.DoesNotExist,
+            lambda: Page.objects.best_match_for_path(
+                page.get_absolute_url() + 'something/hello/'))
 
-        self.assertRaises(Http404, lambda: Page.objects.best_match_for_path('/blabla/blabla/', raise404=True))
-        self.assertRaises(Http404, lambda: Page.objects.page_for_path('/asdf/', raise404=True))
-        self.assertRaises(Page.DoesNotExist, lambda: Page.objects.best_match_for_path('/blabla/blabla/'))
-        self.assertRaises(Page.DoesNotExist, lambda: Page.objects.page_for_path('/asdf/'))
+        self.assertRaises(Http404,
+            lambda: Page.objects.best_match_for_path(
+                '/blabla/blabla/', raise404=True))
+        self.assertRaises(Http404,
+            lambda: Page.objects.page_for_path('/asdf/', raise404=True))
+        self.assertRaises(Page.DoesNotExist,
+            lambda: Page.objects.best_match_for_path('/blabla/blabla/'))
+        self.assertRaises(Page.DoesNotExist,
+            lambda: Page.objects.page_for_path('/asdf/'))
 
         request = Empty()
         request.path = request.path_info = page.get_absolute_url()
@@ -892,16 +945,24 @@ class PagesTestCase(TestCase):
         page.active = False
         page.save()
 
-        self.assertRaises(Http404, lambda: Page.objects.for_request(request, raise404=True))
+        self.assertRaises(Http404,
+            lambda: Page.objects.for_request(request, raise404=True))
 
         page.active = True
         page.save()
 
-        self.assertRaises(Http404, lambda: Page.objects.for_request(request, raise404=True))
+        self.assertRaises(Http404,
+            lambda: Page.objects.for_request(request, raise404=True))
 
         page.parent.active = True
         page.parent.save()
         self.assertEqual(page, Page.objects.for_request(request))
+
+        self.assertEqual(page,
+            Page.objects.page_for_path(page.get_absolute_url()))
+        self.assertEqual(page,
+            Page.objects.best_match_for_path(
+                page.get_absolute_url() + 'something/hello/'))
 
         old = feincms_settings.FEINCMS_ALLOW_EXTRA_PATH
         request.path += 'hello/'
@@ -1188,7 +1249,7 @@ class PagesTestCase(TestCase):
         page.mediafilecontent_set.create(
             mediafile=mediafile,
             region='main',
-            position='block',
+            type='default',
             ordering=1)
 
         self.assertContains(self.client.get('/admin/medialibrary/mediafile/'), 'somefile.jpg')
@@ -1219,7 +1280,6 @@ class PagesTestCase(TestCase):
         stats = list(MediaFile.objects.values_list('type', flat=True))
         self.assertEqual(stats.count('image'), 12)
         self.assertEqual(stats.count('other'), 0)
-        # XXX: Test mediafile type detection some more?
 
     def test_30_context_processors(self):
         self.create_default_page_set()
@@ -1332,3 +1392,19 @@ class PagesTestCase(TestCase):
         self.assertEquals(r.status_code, 404)
 
         feincms_settings.FEINCMS_ALLOW_EXTRA_PATH = old
+
+    def test_36_sitemaps(self):
+        response = self.client.get('/sitemap.xml')
+        self.assertContains(response, '<urlset', status_code=200)
+
+        self.login()
+        response = self.create_page()
+        response = self.client.get('/sitemap.xml')
+        self.assertNotContains(response, '<url>', status_code=200)
+
+        page = Page.objects.get()
+        page.active = True
+        page.in_navigation = True
+        page.save()
+        response = self.client.get('/sitemap.xml')
+        self.assertContains(response, '<url>', status_code=200)

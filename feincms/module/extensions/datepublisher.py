@@ -13,6 +13,7 @@ from datetime import datetime
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.cache import patch_response_headers
 from django.utils.translation import ugettext_lazy as _
 
 # ------------------------------------------------------------------------
@@ -42,13 +43,31 @@ def granular_now(n=None):
     """
     if n is None:
         n = timezone.now()
-    return datetime(n.year, n.month, n.day, n.hour, (n.minute // 5) * 5)
+    return timezone.make_aware(datetime(n.year, n.month, n.day, n.hour,
+                                        (n.minute // 5) * 5), n.tzinfo)
+
+# ------------------------------------------------------------------------
+def datepublisher_response_processor(page, request, response):
+    """
+    This response processor is automatically added when the datepublisher
+    extension is registered. It sets the response headers to match with
+    the publication end date of the page so that upstream caches and
+    the django caching middleware know when to expunge the copy.
+    """
+    expires = page.publication_end_date
+    if expires is not None:
+        now = datetime.now()
+        delta = expires - now
+        delta = int(delta.days * 86400 + delta.seconds)
+        patch_response_headers(response, delta)
 
 # ------------------------------------------------------------------------
 def register(cls, admin_cls):
-    cls.add_to_class('publication_date', models.DateTimeField(_('publication date'),
+    cls.add_to_class('publication_date',
+                                models.DateTimeField(_('publication date'),
         default=granular_now))
-    cls.add_to_class('publication_end_date', models.DateTimeField(_('publication end date'),
+    cls.add_to_class('publication_end_date',
+                                models.DateTimeField(_('publication end date'),
         blank=True, null=True,
         help_text=_('Leave empty if the entry should stay active forever.')))
     cls.add_to_class('latest_children', latest_children)
@@ -68,8 +87,12 @@ def register(cls, admin_cls):
     if hasattr(cls._default_manager, 'add_to_active_filters'):
         cls._default_manager.add_to_active_filters(
             Q(publication_date__lte=granular_now) &
-            (Q(publication_end_date__isnull=True) | Q(publication_end_date__gt=granular_now)),
+             (Q(publication_end_date__isnull=True) |
+              Q(publication_end_date__gt=granular_now)),
             key='datepublisher')
+
+    # Processor to patch up response headers for expiry date
+    cls.register_response_processor(datepublisher_response_processor)
 
     def datepublisher_admin(self, page):
         return u'%s &ndash; %s' % (
@@ -88,7 +111,7 @@ def register(cls, admin_cls):
     admin_cls.list_display.insert(pos + 1, 'datepublisher_admin')
 
     admin_cls.add_extension_options(_('Date-based publishing'), {
-                'fields': ('publication_date', 'publication_end_date'),
+                'fields': ['publication_date', 'publication_end_date'],
         })
 
 # ------------------------------------------------------------------------

@@ -2,6 +2,8 @@
 # coding=utf-8
 # ------------------------------------------------------------------------
 
+import logging
+
 from django import template
 from django.template.loader import render_to_string
 
@@ -16,7 +18,9 @@ def _render_content(content, **kwargs):
     if request is not None:
         level = getattr(request, 'feincms_render_level', 0)
         if level > 10:
-            # TODO: Log this
+            logging.getLogger('feincms').error(
+                'Refusing to render %r, render level is already %s' % (
+                    content, level))
             return
         setattr(request, 'feincms_render_level', level + 1)
 
@@ -56,7 +60,7 @@ def feincms_frontend_editing(cms_obj, request):
     {% feincms_frontend_editing feincms_page request %}
     """
 
-    if hasattr(request, 'session') and request.session.get('frontend_editing'):
+    if hasattr(request, 'COOKIES') and request.COOKIES.get('frontend_editing') == 'True':
         context = template.RequestContext(request, {
             "feincms_page": cms_obj,
             })

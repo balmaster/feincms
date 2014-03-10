@@ -25,7 +25,9 @@ Page.register_templates({
         ),
     })
 Page.create_content_type(RawContent)
-MediaFileContent.default_create_content_type(Page)
+Page.create_content_type(MediaFileContent, TYPE_CHOICES=(
+    ('default', 'Default position'),
+    ))
 Page.create_content_type(ImageContent, POSITION_CHOICES=(
     ('default', 'Default position'),
     ))
@@ -46,6 +48,12 @@ Page.create_content_type(ApplicationContent, APPLICATIONS=(
     ))
 
 
+Entry.register_extensions(
+    'feincms.module.extensions.seo',
+    'feincms.module.extensions.translations',
+    'feincms.module.extensions.seo',
+    'feincms.module.extensions.ct_tracker',
+    )
 Entry.register_regions(
     ('main', 'Main region'),
     )

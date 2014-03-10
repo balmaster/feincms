@@ -8,6 +8,12 @@ feincms.jQuery(function($){
     $.extend($.fn.recolorRows = function() {
         $('tr:visible:even', this).removeClass('row2').addClass('row1');
         $('tr:visible:odd', this).removeClass('row1').addClass('row2');
+
+        /* Mark inactive rows */
+        $('tr.item_inactive').removeClass('item_inactive');
+        $('div[id^=wrap_active_] input:checkbox:not(:checked)').parents('tr').addClass('item_inactive');
+        $('div[id^=wrap_active_] img').parents('tr').addClass('item_inactive');
+
     });
 
     function isExpandedNode(id) {
@@ -175,11 +181,15 @@ feincms.jQuery(function($){
                     // get out early if items are the same
                     if(cutItem != pastedOn) {
                         var isParent = (moveTo.relativeTo.next().attr('rel') > moveTo.relativeTo.attr('rel'));
+                        var position = '';
+
                         // determine position
                         if(moveTo.side == CHILD && !isParent) {
-                            var position = 'last-child';
+                            position = 'last-child';
+                        } else if (moveTo.side == BEFORE) {
+                            position = 'left';
                         } else {
-                            var position = 'left';
+                            position = 'right';
                         }
 
                         // save
